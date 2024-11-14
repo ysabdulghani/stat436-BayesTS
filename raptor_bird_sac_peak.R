@@ -10,10 +10,10 @@ library(lubridate)
 weather_data <- read_csv("./stat436-BayesTS/WeatherData/weather_data_bzn.csv")
 raptor_bird_data <- read_csv("./stat436-BayesTS/raptor_bird_data.csv")
 
-# Modify raptor data
-raptor_bird_data <- raptor_bird_data %>%
-  mutate(Date = as.Date(Date, format = "%m/%d/%Y")) %>%
-  rename("Time" = Date)
+# # Modify raptor data
+# raptor_bird_data <- raptor_bird_data %>%
+#   mutate(Date = as.Date(Date, format = "%m/%d/%Y")) %>%
+#   rename("Time" = Date)
 
 # Add more dates
 date_1 <- seq(as.Date("2019/11/01"), as.Date("2020/08/26"), by = 1)
@@ -60,12 +60,15 @@ raptor_bird_data_full <- raptor_bird_data_full %>%
 raptor_bird_data_full <- raptor_bird_data_full %>%
   mutate(Year = year(Time), Month = month(Time), Day = day(Time))
 
+# Join with Weather Data
+raptor_bird_data_with_weather_info <- inner_join(raptor_bird_data_full, weather_data, by = c("Time", "Year", "Month", "Day"))
+
 # Create a subset of raptor data for August to October
-raptor_bird_data_subset <- raptor_bird_data_full %>%
+raptor_bird_data_subset <- raptor_bird_data_with_weather_info %>%
   subset(subset = (Month==8|Month==9|Month==10))
 
 # Save out data 
-write_csv(raptor_bird_data_full, "./stat436-BayesTS/raptor_bird_data.csv")
+write_csv(raptor_bird_data_with_weather_info, "./stat436-BayesTS/raptor_bird_data.csv")
 write_csv(raptor_bird_data_subset, "./stat436-BayesTS/raptor_bird_data_aug_to_oct.csv")
 
 

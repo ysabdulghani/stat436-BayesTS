@@ -6,9 +6,9 @@ library(dplyr)
 library(tidyr)
 library(lubridate)
 
-# Read in data
-weather_data <- read_csv("./stat436-BayesTS/WeatherData/weather_data_bzn.csv")
-raptor_bird_data <- read_csv("./stat436-BayesTS/RaptorData/raptor_bird_data.csv")
+# # Read in data
+# weather_data <- read_csv("./stat436-BayesTS/WeatherData/weather_data_bzn.csv")
+# raptor_bird_data <- read_csv("./stat436-BayesTS/RaptorData/raptor_bird_data.csv")
 
 # Modify raptor data
 raptor_bird_data <- raptor_bird_data %>%
@@ -68,7 +68,7 @@ raptor_bird_data_subset <- raptor_bird_data_with_weather_info %>%
   subset(subset = (Month==8|Month==9|Month==10))
 
 # Save out data 
-write_csv(raptor_bird_data_with_weather_info, "./stat436-BayesTS/RaptorData/raptor_bird_data.csv")
+write_csv(raptor_bird_data_with_weather_info, "./stat436-BayesTS/RaptorData/raptor_bird_data_preprocessed.csv")
 write_csv(raptor_bird_data_subset, "./stat436-BayesTS/RaptorData/raptor_bird_data_aug_to_oct.csv")
 
 

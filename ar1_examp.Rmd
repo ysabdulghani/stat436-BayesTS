@@ -1,0 +1,73 @@
+---
+title: "simple_bayes_ar"
+author: "Ben DeVries"
+date: "2024-11-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(forecast)
+library(rstan)
+library(bayesplot)
+```
+
+```{r}
+setwd("./stat436-BayesTS/")
+dat <- read_csv("./RaptorData/raptor_bird_data.csv")
+
+#Example Bayesian model for first year hourly rate of golden eagle counts
+ex_dat <- dat %>% filter(Year %in% c(2019) & Month %in% c(8, 9, 10)) %>%
+  select(Time, Obs_Hrs, Golden_Eagle) %>% mutate(
+    rate = case_when(Obs_Hrs == 0 ~ 0,
+                     Obs_Hrs > 0 ~ Golden_Eagle / Obs_Hrs))
+ex_ts <- ts(ex_dat, frequency = 365)
+
+#Frequentist forced ar(1) fit
+m0 <- auto.arima(ex_ts[, 4], max.p = 1, max.d = 0, max.q = 0)
+pacf(m0$residuals)
+m0
+```
+
+Similar model but Bayesian and with gaussian error. Sampling was done with stan which parameterizes the normal distribution with standard deviation. 
+
+Copied from: https://mc-stan.org/docs/stan-users-guide/time-series.html#autoregressive-moving-average-models
+
+$$\lambda_t\sim N(\alpha+\beta\cdot\lambda_{t-1}, \sigma),\ t\ge2$$
+
+```{r}
+compiled_mod <- stan_model("./stat436-BayesTS/simple_ar1.stan")
+
+init0 <- function() {
+  beta0 <- runif(1)
+  sigma0 <- runif(1)
+  alpha0 <- runif(1)
+  
+  return(list(beta = beta0, sigma = sigma0, alpha = alpha0))
+}
+
+mod_dat <- list(
+  N = length(ex_dat$rate),
+  rate = ex_dat$rate
+)
+
+fit <- stan(
+  model_code = readLines("./stat436-BayesTS/simple_ar1.stan"),
+  data = mod_dat,
+  init = replicate(4, init0(), simplify = FALSE),
+  chains = 4, iter = 4000
+)
+
+#diagnostic plots to assess convergence
+mcmc_trace(fit)
+pairs(fit)
+#compare estimates between methods
+fit
+m0
+m0$sigma2 %>% sqrt()
+```
+
+
+

@@ -23,19 +23,45 @@ The presentation does _not_ need to be a complete representation of your full fi
 
 What I am looking for on the presentations:
 
-- We have learned a fair bit of classical time series in this course: what gap does your project topic fill? What different types of data does it allow us to analyze?
-- A background on the method: what makes it different from a modeling standpoint?
-- What fields has this method been applied in successfully? What software packages (in `R`, Python, or other) exist to fit these types of models?
-- A simple example of applying the method to data. This can be "toy" data if you would like, or even a simple application from a package vignette (if you do `?function`, there are usually examples of fitting on data). If you aren't sure how to make toy data, I can help
-- An introduction (does NOT need to be a full analysis) to the dataset that you chose for your final project. Some visualizations. Where did it come from, what is it?
-- A discussion of why you chose this dataset to illustrate your method. What strengths of your method / nuances of your dataset will allow for a more thorough analysis than using some of our methods from class?
+- We have learned a fair bit of classical time series in this course: what gap does your project topic fill? What different types of data does it allow us to analyze? **Michael**
+- A background on the method: what makes it different from a modeling standpoint? **Youef**
+- What fields has this method been applied in successfully? What software packages (in `R`, Python, or other) exist to fit these types of models? **Y**
+- A simple example of applying the method to data. This can be "toy" data if you would like, or even a simple application from a package vignette (if you do `?function`, there are usually examples of fitting on data). If you aren't sure how to make toy data, I can help **B**
+- An introduction (does NOT need to be a full analysis) to the dataset that you chose for your final project. Some visualizations. Where did it come from, what is it? **Mad**
+- A discussion of why you chose this dataset to illustrate your method. What strengths of your method / nuances of your dataset will allow for a more thorough analysis than using some of our methods from class? **Ben**
 
 ## Report
 
-The second component of the final project will consist of a report. This portion is worth 70\% of the grade and is due by 11:59 AM on Thursday, December 14th. The report should be a **minimum** of 5 pages (perhaps 7 was ambitious by me) not including Figures, Code, or References. The report should have the following sections:
+The second component of the final project will consist of a report. This portion is worth 70\% of the grade and is due by 11:59 AM on Thursday, December 12th. The report should be a **minimum** of 5 pages (perhaps 7 was ambitious by me) not including Figures, Code, or References. The report should have the following sections:
 
 - Introduction: similar in spirit to the presentation. What is your project topic? What are shortcomings of the methods that we have learned in class and what gaps does your project topic fill?
+  **Topic: Bayesian Time Series modeling Raptor Bird Counts per hour in the Bridger Mtn Range.**
+  **Interpretations of effects are more direct**
 - Methods: a thorough explanation of your project topic, with a little bit of math
+**Explain Bayesian Methods and applications in R**
 - Data: the focal dataset that you have chosen for your analysis, with visualizations. Where did the data come from?
+**Weather data and raptor data from Sac Peak. Mention data transformations**
 - Results: analysis of the data via your selected method from the project topic. This may include code snippets, unlike the take-home midterm report. You can use these to demonstrate how to fit models.
 - Discussion: what did you learn from the completion of this project?
+
+Models to consider:
+
+  - State space: full year data for each of the 5 years
+  - Change point: predict start of migration
+  - ARIMA model: comparison model
+  
+Research objectives: 
+  - rate of golden eagle migration in 2024
+  - set prior data (2019)
+  - variable selection
+  - State space (Bayesian) model
+
+RQ:
+  - Forecast rate of golden eagle migration in 2024
+  - variable selection (DIC)
+  
+Preentation:
+
+- Data: Mad
+- Background (Baye): Ben
+

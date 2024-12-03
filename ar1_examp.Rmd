@@ -12,6 +12,8 @@ library(ggplot2)
 library(forecast)
 library(rstan)
 library(bayesplot)
+library(matrixStats)
+library(bsts)
 ```
 
 ```{r}
@@ -19,16 +21,32 @@ setwd("./stat436-BayesTS/")
 dat <- read_csv("raptor_bird_data.csv")
 
 #Example Bayesian model for first year hourly rate of golden eagle counts
-ex_dat <- dat %>% filter(Year %in% c(2019) & Month %in% c(8, 9, 10)) %>%
-  select(Time, Obs_Hrs, Golden_Eagle) %>% mutate(
-    rate = case_when(Obs_Hrs == 0 ~ 0,
-                     Obs_Hrs > 0 ~ Golden_Eagle / Obs_Hrs))
-ex_ts <- ts(ex_dat, frequency = 365)
+dat$Time <- as.Date(dat$Time, format = "%m/%d/%Y")
+dat <- dat  %>% filter((Month == 8 & Day >= 27) | Month %in% c(9, 10)) %>%  mutate(
+    ss_rate = case_when(Obs_Hrs == 0 ~ 0,
+                     Obs_Hrs > 0 ~ (Sharp_Shinned_Hawk / Obs_Hrs)),
+    co_rate = case_when(Obs_Hrs == 0 ~ 0,
+                     Obs_Hrs > 0 ~ (Cooper_Hawk / Obs_Hrs)),
+    Golden_Eagle = case_when(Obs_Hrs == 0 ~ NA, Obs_Hrs > 0 ~ Golden_Eagle),
+    Obs_Hrs = case_when(Obs_Hrs == 0 ~ NA, Obs_Hrs > 0 ~ Obs_Hrs))
 
-#Frequentist forced ar(1) fit
-m0 <- auto.arima(ex_ts[, 4], max.p = 1, max.d = 0, max.q = 0)
+dat_train <- dat[1 : 264, ]
+dat_test <- dat[265 : 330, ]
+```
+
+```{r}
+
+ex_ts <- ts(train_dat, frequency = 66)
+
+
+m0 <- auto.arima((ex_ts[, 5] / ex_ts[, 2]), seasonal = T)
 pacf(m0$residuals)
 m0
+m1 <- auto.arima(log(ex_ts[, 5] + 0.001), seasonal = T,
+                 xreg = as.matrix(cbind(offset(log(train_dat[, 2] + 0.001)),
+                                        train_dat[, c(12, 16, 17)])))
+
+
 ```
 
 Similar model but Bayesian and with gaussian error. Sampling was done with stan which parameterizes the normal distribution with standard deviation. 
@@ -44,13 +62,13 @@ init0 <- function() {
   beta0 <- runif(1)
   sigma0 <- runif(1)
   alpha0 <- runif(1)
-  
   return(list(beta = beta0, sigma = sigma0, alpha = alpha0))
 }
 
 mod_dat <- list(
   N = length(ex_dat$rate),
-  rate = ex_dat$rate
+  rate = ex_dat$rate,
+  hours = ex_dat$Obs_Hrs
 )
 
 fit <- stan(
@@ -59,15 +77,145 @@ fit <- stan(
   init = replicate(4, init0(), simplify = FALSE),
   chains = 4, iter = 4000
 )
+gc()
+count_ppc <- rstan::extract(fit)$counts
+a <- extract(fit)[["alpha"]]
 
-#diagnostic plots to assess convergence
-mcmc_trace(fit)
-pairs(fit)
+pairs(data.frame(a, b, rate))
+
+ggplot() +
+  geom_line(aes(x = seq(1, 1000), y = a[, 2]), colour = "aquamarine", alpha = 0.8) +
+  geom_line(aes(x = seq(1, 1000), y = a[, 4]), colour = "skyblue", alpha = 0.8) +
+  geom_line(aes(x = seq(1, 1000), y = a[, 6]), colour = "lightblue", alpha = 0.8) +
+  geom_line(aes(x = seq(1, 1000), y = a[, 8]), colour = "powderblue", alpha = 0.8)
+
+plot_dat <- data.frame(lb = colQuantiles(count_ppc, probs = 0.025),
+                       ub = colQuantiles(count_ppc, probs = 0.975),
+                       med = colMedians(count_ppc),
+                       t = seq(1, 66))
+ggplot(plot_dat) +
+  geom_line(aes(x = t, y = ub)) +
+  geom_line(aes(x = t, y = lb)) +
+  geom_line(aes(x = t, y = med)) +
+  geom_col(aes(y = ex_dat$Golden_Eagle, x = t), alpha = 0.5)
+
+
 #compare estimates between methods
 fit
 m0
 m0$sigma2 %>% sqrt()
 ```
 
+```{r}
+ss <- AddAr(list(), log1p(dat_train$Golden_Eagle), lags = 1)
+ss <- AddSeasonal(ss, log1p(dat_train$Golden_Eagle), nseasons = 22, 3)
+bsts0 <- bsts(data = dat_train, formula = cbind(Golden_Eagle, Obs_Hrs) ~ 1 + ss_rate,
+              family = "poisson", state.specification = ss, niter = 10000, seed = 436)
 
+ss <- AddAr(list(), log1p(dat$Golden_Eagle), lags = 1)
+ss <- AddSeasonal(ss, log1p(dat$Golden_Eagle), nseasons = 22, 3)
+bsts1 <- bsts(data = dat, formula = cbind(Golden_Eagle, Obs_Hrs) ~ 1 + ss_rate,
+              family = "poisson", state.specification = ss, niter = 10000, seed = 436)
+
+
+colSums2(bsts0$coefficients == 0)
+colSums2(bsts0$AR66.coefficients == 0)
+colSums2(bsts1$coefficients == 0)
+#colSums2(bsts0$ == 0)
+
+
+ggplot() +
+  geom_line(aes(x = 1 : 10000, y = rowMeans(bsts0$one.step.prediction.errors ^ 2))) +
+  labs(title = "One Step Ahead Prediction Errors Squared for Each MCMC Iteration",
+       x = "MCMC Iteration Index", y = "Squared Prediction Error")
+
+preds <- predict(bsts0, burn = 5000, newdata = dat_test,
+                 trials.or.exposure = dat_test$Obs_Hrs)
+
+ggplot() +
+  geom_col(aes(x = dat_test$Time, y = preds$interval[2, ],
+                fill = "95% Prediction\nInterval"), color = "black", alpha = 0,
+             linetype = "dashed") +
+  geom_col(aes(x = dat_test$Time, y = dat_test$Golden_Eagle, fill = "Observed"),
+           alpha = 0.5, color = "black") +
+  geom_col(aes(x = dat_test$Time, y = preds$mean, fill = "Mean\nPrediction"),
+           alpha = 0.5,
+           color = "black") +
+    geom_col(aes(x = dat_test$Time, y = preds$interval[1, ],
+                fill = "95% Prediction\nInterval"), color = "black", alpha = 0,
+             linetype = "dashed") +
+  scale_fill_manual(values = c("white", "gold3", "maroon")) +
+  labs(title = "Golden Eagle Count With Predictions for 2023", x = "",
+       y = "Golden Eagle Count")
+
+sum(dat_test$Golden_Eagle <= preds$interval[2, ] &
+      dat_test$Golden_Eagle >= preds$interval[1, ], na.rm = T) /
+  sum(!is.na(dat_test$Golden_Eagle))
+```
+
+```{r}
+fits_link <- plot(bsts1, scale = "linear", burn = 5000)
+post_resp <- exp(fits_link)
+ggplot() +
+  geom_ribbon(aes(x = 1 : 330, ymin = colQuantiles(post_resp, probs = 0.025),
+                  ymax = colQuantiles(post_resp, probs = 0.975)), fill = "sienna") +
+  labs(title = "95% Credible Interval for Golden Eagles Per Hour",
+       x = "Index of Day of Observation", y = "Lambda")
+
+```
+
+
+```{r}
+val_aug_2024 <- data.frame(
+  Time = seq(as.Date("8/27/2024", format = "%m/%d/%Y"),
+             as.Date("8/31/2024", format = "%m/%d/%Y"), "day"),
+  Obs_Hrs = c(8,8,8,8,8.18),
+  Golden_Eagle = c(1,1,0,3,0)
+)
+val_sept_2024 <- read_csv("~/Documents/STAT532/GE-counts_sept2024.csv") %>%
+  rename(Time = Date, Obs_Hrs = Obs_hrs, Golden_Eagle = GE)
+val_sept_2024$Time <- seq(as.Date("9/1/2024", format = "%m/%d/%Y"),
+             as.Date("9/30/2024", format = "%m/%d/%Y"), "day")
+val_oct_2024 <- data.frame(
+  Time = seq(as.Date("10/1/2024", format = "%m/%d/%Y"),
+             as.Date("10/31/2024", format = "%m/%d/%Y"), "day"),
+  Obs_Hrs = c(8,7.5,8,8,8,8,8,8,8,8,8,8.02,8,8,8,8,0,2,8,8,7.75,7.53,7.42,3.25,8,8.25,
+              8,5.5,6.92,8,6),
+  Golden_Eagle = c(4,46,16,14,40,12,31,5,67,1,56,9,22,24,113,48,0,0,50,34,46,9,1,19,15,
+                   51,28,17,0,0,4)
+)
+
+SS_2024 <- c(10,2,3,0,8,
+9,5,4,8,6,2,6,0,4,8,9,0,0,14,16,36,0,0,19,24,19,7,11,12,26,15,3,11,9,4,
+6,6,6,6,17,8,4,3,5,1,18,6,16,6,17,11,0,0,0,13,7,2,1,0,11,3,10,0,0,2,0)
+
+val_2024 <- rbind(val_aug_2024, val_sept_2024, val_oct_2024)
+val_2024[23, 3] <- 0
+val_2024$ss_rate <- ifelse(val_2024$Obs_Hrs > 0, SS_2024 / val_2024$Obs_Hrs, 0)
+val_2024$Golden_Eagle <- ifelse(val_2024$Obs_Hrs == 0, NA, val_2024$Golden_Eagle)
+val_2024$Obs_Hrs <- ifelse(val_2024$Obs_Hrs == 0, NA, val_2024$Obs_Hrs)
+preds_2024 <- predict(bsts1, newdata = val_2024, burn = 5000,
+                      trials.or.exposure = val_2024$Obs_Hrs)
+sum(test_2023$Golden_Eagle <= preds$interval[2, ]) / 66
+
+ggplot() +
+  geom_col(aes(x = val_2024$Time, y = preds_2024$interval[2, ],
+                fill = "95% Prediction\nInterval"), color = "black", alpha = 0,
+             linetype = "dashed") +
+  geom_col(aes(x = val_2024$Time, y = val_2024$Golden_Eagle, fill = "Observed"),
+           alpha = 0.5, color = "black") +
+  geom_col(aes(x = val_2024$Time, y = preds_2024$mean, fill = "Mean\nPrediction"),
+           alpha = 0.5,
+           color = "black") +
+    geom_col(aes(x = val_2024$Time, y = preds_2024$interval[1, ],
+                fill = "95% Prediction\nInterval"), color = "black", alpha = 0,
+             linetype = "dashed") +
+  scale_fill_manual(values = c("white", "gold3", "maroon")) +
+  labs(title = "Golden Eagle Count With Predictions for 2024", x = "",
+       y = "Golden Eagle Count")
+
+sum(val_2024$Golden_Eagle <= preds_2024$interval[2, ] &
+      val_2024$Golden_Eagle >= preds_2024$interval[1, ], na.rm = T) /
+  sum(!is.na(val_2024$Golden_Eagle))
+```
 

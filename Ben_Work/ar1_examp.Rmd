@@ -38,7 +38,7 @@ Copied from: https://mc-stan.org/docs/stan-users-guide/time-series.html#autoregr
 $$\lambda_t\sim N(\alpha+\beta\cdot\lambda_{t-1}, \sigma),\ t\ge2$$
 
 ```{r}
-compiled_mod <- stan_model("./stat436-BayesTS/simple_ar1.stan")
+compiled_mod <- stan_model("./stat436-BayesTS/Ben_Work/simple_ar1.stan")
 
 init0 <- function() {
   beta0 <- runif(1)
@@ -54,7 +54,7 @@ mod_dat <- list(
 )
 
 fit <- stan(
-  model_code = readLines("./stat436-BayesTS/simple_ar1.stan"),
+  model_code = readLines("./stat436-BayesTS/Ben_Work/simple_ar1.stan"),
   data = mod_dat,
   init = replicate(4, init0(), simplify = FALSE),
   chains = 4, iter = 4000

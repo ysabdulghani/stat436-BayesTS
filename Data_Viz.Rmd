@@ -1,0 +1,372 @@
+---
+title: 'Raptor Bird Data Visualization'
+author: "Mads Munto"
+date: "2024-11-26"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Read in needed libraries
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(forecast)
+library(ggfortify)
+library(ggplot2)
+library(matrixStats)
+library(lattice)
+library(GGally)
+library(corrplot)
+library(reshape2)
+```
+
+## Read in Raptor Bird and Weather Data
+
+After performing data transformations on the raptor and weather datasets, we are ready to visualize and assess the data before performing Bayesian Time Series on it. Here are the following variables for the aggregated dataset:
+
+  - **Golden_Eagle:** The counts of Golden Eagles observed in the Bridger Mountains in a day
+  - **Sharp_Shinned_Hawk:** The counts of Sharp-Shinned Hawks observed in the Bridger Mountains in a day
+  - **Cooper_Hawk:** The counts of Cooper's Hawks observed in the Bridger Mountains in a day
+  - **Obs_Hrs:** The number of hours raptor birds were watched by at least one investigator
+  - **Avg_Temp:** Daily average temperature (DegF)
+  - **Max_Temp:** Daily maximum temperature (DegF)
+  - **Min_Temp:** Daily minimum temperature (DegF)
+  - **Precip:** Daily precipitation accumulation (in)
+  - **Snow_Depth:** Daily snow depth (in)
+  - **Air_Pressure:** Average daily absolute (non sea level adjusted) air pressure (inHG)
+  - **Wind_Speed:** Average daily wind speed (m/s)
+  - **Time:** The date for a given observation in YYYY-MM-DD format
+  - **Year:** The year
+  - **Month:** The month
+  - **Day:** The day
+  
+Read in the data:
+
+```{r}
+raptor_bird_data <- read_csv("./stat436-BayesTS/raptor_bird_data.csv")
+
+#Fix data types
+raptor_bird_data$Time <- mdy(raptor_bird_data$Time)
+raptor_bird_data$Cooper_Hawk <- as.integer(raptor_bird_data$Cooper_Hawk)
+raptor_bird_data$Sharp_Shinned_Hawk <- as.integer(raptor_bird_data$Sharp_Shinned_Hawk)
+raptor_bird_data$Golden_Eagle <- as.integer(raptor_bird_data$Golden_Eagle)
+raptor_bird_data$Year <- as.numeric(raptor_bird_data$Year)
+raptor_bird_data$Month <- as.numeric(raptor_bird_data$Month)
+raptor_bird_data$Day <- as.numeric(raptor_bird_data$Day)
+
+#Rearrange columns
+raptor_bird_data <- raptor_bird_data %>%
+  select(Golden_Eagle, Sharp_Shinned_Hawk, Cooper_Hawk, Obs_Hrs, Avg_Temp, Max_Temp, Min_Temp, Precip, Snow_Depth, Air_Pressure, Wind_Speed, Time, Year, Month, Day)
+
+raptor_bird_data
+```
+
+## Exploratory Data Analysis
+
+We want to see how the data looks and see if there are any interesting trends. First, let's look at the counts for each raptor bird:
+
+```{r}
+plot(raptor_bird_data$Time, raptor_bird_data$Golden_Eagle, 
+     type = "l", col = "blue", 
+     xlab = "Date", ylab = "Count of Birds Observed", 
+     main = "Counts of Birds Across Five Years",
+     ylim = range(c(raptor_bird_data$Golden_Eagle, 
+                    raptor_bird_data$Sharp_Shinned_Hawk, 
+                    raptor_bird_data$Cooper_Hawk)))
+
+lines(raptor_bird_data$Time, raptor_bird_data$Sharp_Shinned_Hawk, 
+      col = "red", type = "l")
+
+lines(raptor_bird_data$Time, raptor_bird_data$Cooper_Hawk, 
+      col = "black", type = "l")
+
+legend("topright", legend = c("Golden Eagle", "Sharp-Shinned Hawk", "Cooper's Hawk"),
+       col = c("blue", "red", "black"), lty = 1, cex = 0.8)
+
+```
+
+The same plot but split into separate plots based on year:
+
+```{r}
+year_list <- c(2019, 2020, 2021, 2022, 2023)
+
+par(mfrow = c(3, 2), oma = c(0, 0, 0, 0)) 
+
+for (year in year_list) {
+  subset_data <- raptor_bird_data[raptor_bird_data$Year == year, ]
+  subset_data <- subset_data[subset_data$Month %in% c(8, 9, 10), ]
+  
+  if (nrow(subset_data) == 0) {
+    plot.new()
+    next
+  }
+
+  plot(subset_data$Time, subset_data$Golden_Eagle, 
+       type = "l", col = "blue", 
+       xlab = "Date", ylab = "Count of Birds Observed", 
+       main = paste("Year:", year),
+       ylim = range(c(subset_data$Golden_Eagle, 
+                      subset_data$Sharp_Shinned_Hawk, 
+                      subset_data$Cooper_Hawk), na.rm = TRUE))
+  
+  lines(subset_data$Time, subset_data$Sharp_Shinned_Hawk, col = "red", type = "l")
+  lines(subset_data$Time, subset_data$Cooper_Hawk, col = "black", type = "l")
+}
+
+plot.new() 
+legend("center", legend = c("Golden Eagle", "Sharp-Shinned Hawk", "Cooper's Hawk"),
+       col = c("blue", "red", "black"), lty = 1, cex = 1, bty = "n")
+```
+
+Each bird appears prominently during the months August, September, and October. Additionally, Golden Eagle counts peak around early to mid October.
+
+```{r}
+#Subset to just August, September, and October
+raptor_bird_data_subset <- raptor_bird_data[raptor_bird_data$Year == 2019, ]
+
+plot(raptor_bird_data_subset$Time, raptor_bird_data_subset$Golden_Eagle, 
+     type = "l", col = "blue", 
+     xlab = "Date", ylab = "Count of Birds Observed", 
+     main = "Counts of Birds in 2019",
+     ylim = range(c(raptor_bird_data_subset$Golden_Eagle, 
+                    raptor_bird_data_subset$Sharp_Shinned_Hawk, 
+                    raptor_bird_data_subset$Cooper_Hawk)))
+
+#axis(1, at = seq(min(raptor_bird_data_subset$Time), max(raptor_bird_data_subset$Time), by = "1 week"),
+     #labels = format(seq(min(raptor_bird_data_subset$Time), max(raptor_bird_data_subset$Time), by = "1 week"), "%b %d"))
+
+lines(raptor_bird_data_subset$Time, raptor_bird_data_subset$Sharp_Shinned_Hawk, 
+       col = "red", type = "l")
+
+lines(raptor_bird_data_subset$Time, raptor_bird_data_subset$Cooper_Hawk, 
+       col = "black", type = "l")
+
+legend("topright", legend = c("Golden Eagle", "Sharp-Shinned Hawk", "Cooper's Hawk"),
+       col = c("blue", "red", "black"), pch = 1, cex = 0.8)
+
+
+```
+
+Let's see how correlated the numeric variables are to each other. This can give us an idea of what variables may be important for forecasting:
+
+```{r}
+# raptor_sub <- raptor_bird_data %>% select(-c(Year, Month, Day)) #remove Y, M, and D since we have Time
+# 
+# ggpairs(raptor_sub, progress = F)
+
+raptor_bird_data_numeric <- raptor_bird_data %>%
+  select_if(is.numeric)
+
+cor_mat <- cor(raptor_bird_data_numeric)
+cor_transform <- melt(cor_mat)
+colnames(cor_transform) <- c("Variable1", "Variable2", "Correlation")
+
+ggplot(cor_transform, aes(x = Variable1, y = Variable2, fill = Correlation)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, 
+                       limit = c(-1, 1), space = "Lab", name = "Correlation") +
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +  
+  coord_fixed()
+```
+
+A different version:
+
+```{r}
+ggpairs(raptor_bird_data_numeric, progress = F)
+```
+
+Variables that are highly correlated with one another are the temperature variables and snow depth as well as the observed hours with the birds of interest.
+
+Now, let's see how a time series with Golden Eagle counts as our y variable:
+
+```{r}
+raptor_bird_data_ge$Time_numeric <- as.numeric(as.Date(raptor_bird_data_ge$Time))
+
+golden_eagle_ts <- ts(raptor_bird_data_ge$Golden_Eagle,
+                      start = as.numeric(format(min(raptor_bird_data_ge$Time), "%Y")),
+                      frequency = 365)
+
+autoplot(golden_eagle_ts) +
+  labs(x = "Year", y = "Golden Eagle Count", title = "Golden Eagle Count Time Series")
+
+```
+
+Cross-correlation between Golden Eagle counts and Sharp-Shinned Hawk (can change):
+
+```{r}
+ge_ts <- ts(raptor_bird_data$Golden_Eagle,
+                      start = as.numeric(format(min(raptor_bird_data$Time), "%Y")),
+                      frequency = 365)
+ssh_ts <- ts(raptor_bird_data$Sharp_Shinned_Hawk,
+                      start = as.numeric(format(min(raptor_bird_data$Time), "%Y")),
+                      frequency = 365)
+
+transformed_ge <- log((raptor_bird_data$Golden_Eagle/(raptor_bird_data$Obs_Hrs + 0.001)))
+
+#ccf(ge_ts, ssh_ts)
+ccf(transformed_ge, raptor_bird_data$Sharp_Shinned_Hawk, ylim = c(-1,1))
+
+```
+
+Decompose the data:
+
+```{r}
+# fix margins
+#windows(width = 7, height = 7)
+
+ge_decom <- decompose(golden_eagle_ts)
+
+par(mfrow = c(2, 2), oma = c(0, 0, 0, 0)) 
+
+# plot time series
+plot(ge_decom$x)
+
+# plot seasonality
+plot(ge_decom$seasonal)
+
+# plot trend
+plot(ge_decom$trend)
+
+# plot random component
+plot(ge_decom$random)
+```
+
+```{r}
+# plot pacf
+pacf(ge_decom$random, na.action = na.pass, main="PACF for Golden Eagle Counts")
+```
+
+
+There appears to be seasonal trends in our data, and based on the partial ACF plot, we have very high autocorrelation in the data. However, this data is only considering the Golden Eagle counts and the Date. How about for all variables?
+
+We have the PACF for the full model below. We fit a Poisson model as we are dealing with counts for our Y variable:
+
+```{r}
+ge_plm <- glm(Golden_Eagle ~ . + offset(log(Obs_Hrs+0.001)), raptor_bird_data, family = poisson(link = "log"))
+
+pacf(ge_plm$residuals, na.action = na.pass, main="PACF for Poisson-Fitted Raptor Bird Data")
+```
+## ARIMA Fitting on the Data
+
+We fit a SARIMA model to our dataset based on the seasonality present. We also fit the full model to start.
+
+```{r}
+# Create COVS
+raptor_covs <- cbind(Sharp_Shinned_Hawk = raptor_bird_data$Sharp_Shinned_Hawk, Coopers_Hawk = raptor_bird_data$Cooper_Hawk, Obs_Hrs = raptor_bird_data$Obs_Hrs,
+                     Avg_Temp = raptor_bird_data$Avg_Temp, Min_Temp = raptor_bird_data$Min_Temp, Max_Temp = raptor_bird_data$Max_Temp,
+                     Precip = raptor_bird_data$Precip, Snow_Depth = raptor_bird_data$Snow_Depth, Air_Pressure = raptor_bird_data$Air_Pressure, Wind_Speed = raptor_bird_data$Wind_Speed)
+
+raptor_bird_ts <- ts(raptor_bird_data$Golden_Eagle,
+                      start = as.numeric(format(min(raptor_bird_data$Time), "%Y")),
+                      frequency = 365)
+
+golden_eagle_SARIMA <- auto.arima(raptor_bird_ts, seasonal = TRUE, xreg = raptor_covs)
+golden_eagle_SARIMA
+```
+
+After fitting the model using `auto.arima()`, our data was found to be an AR[3] and MA[1] process, but no seasonality. Thus, we have an ARMA model fit. Let's check the PACF for autocorrelation:
+
+```{r}
+golden_eagle_ARMA <- golden_eagle_SARIMA
+
+pacf(golden_eagle_ARMA$residuals)
+```
+
+There is still some leftover autocorrelation in the data. Let's see if variable selection helps using the AIC to select our reduced model:
+
+```{r, echo=FALSE}
+# Function by Mads Munro
+
+# ARIMA model variable selection
+fit_model_and_get_bic <- function(covariates, ts, arima_order) {
+  if (!is.null(covariates) && ncol(covariates) > 0) {  # Only fit model if there are covariates
+    model <- arima(ts, order = arima_order, xreg = covariates)
+    return(BIC(model))
+  } else {  # If no covariates, fit ARIMA without xreg
+    model <- arima(ts, order = arima_order)
+    return(BIC(model))
+  }
+}
+
+#---------------------------------------------------------------------------------------------------------
+
+# Initialize matrix to hold all possible combinations of covariates
+covariate_names <- colnames(raptor_covs)
+all_combinations <- list()
+
+# Calculate all combinations of the covariates
+for (k in 0:length(covariate_names)) {
+  comb <- combn(covariate_names, k, simplify = FALSE)
+  all_combinations <- c(all_combinations, comb)
+}
+
+# Initialize a list to store results
+BIC_results <- data.frame(combination = character(), BIC = numeric(), stringsAsFactors = FALSE)
+
+# Iterate through all combinations and compute AIC
+for (comb in all_combinations) {
+  if (length(comb) > 0) {
+    # Use only selected covariates
+    covs_subset <- raptor_covs[, comb, drop = FALSE]
+  } else {
+    covs_subset <- NULL
+  }
+  
+  # Fit model and get AIC
+  BIC <- fit_model_and_get_bic(covs_subset, golden_eagle_ts, c(3,0,1))
+  
+  # Store the cov combination and its corresponding AIC
+  BIC_results <- rbind(BIC_results, data.frame(combination = paste(comb, collapse = ", "), BIC = BIC))
+}
+
+#Display results sorted by AIC
+BIC_results <- BIC_results[order(BIC_results$BIC), ]
+print(BIC_results)
+
+```
+
+Our variable selection using the AIC found that the following covariates best explain the model for forecasting Golden Eagle counts in 2024: `Sharp_Shinned_Hawk`, `Coopers_Hawk`, `Obs_Hrs`. `Avg_Temp`, and `Max_Temp`. Let's fit the model and assess the PACF for autocorrelation:
+
+```{r}
+raptor_reduced_covs <- cbind(Sharp_Shinned_Hawk = raptor_bird_data$Sharp_Shinned_Hawk, Coopers_Hawk = raptor_bird_data$Cooper_Hawk,
+                             Obs_Hrs = raptor_bird_data$Obs_Hrs, Avg_Temp = raptor_bird_data$Avg_Temp, Max_Temp = raptor_bird_data$Max_Temp)
+
+golden_eagle_ARMA <- Arima(raptor_bird_ts, xreg = raptor_reduced_covs, order = c(3,0,1))
+
+pacf(golden_eagle_ARMA$residuals)
+
+```
+
+Still pretty autocorrelated.
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  

@@ -1,0 +1,30 @@
+```{r}
+library(readr)
+birds<-read_csv("raptor_bird_data_aug_to_oct.csv")
+birds_2019 <- subset(birds,Year==2019)
+gold_ts<-ts(birds_2019$Golden_Eagle)
+```
+
+```{r}
+library(ggfortify)
+library(ggplot2)
+autoplot(gold_ts)
+```
+
+```{r}
+library(bayesforecast)
+model1<-auto.sarima(gold_ts,seasonal = FALSE,max.d = 0)
+```
+```{r}
+prior_summary(model1)
+print(model1)
+```
+
+```{r}
+pacf(model1$residuals)
+```
+```{r}
+autoplot(forecast(object = model1,h = 90))
+```
+
+
